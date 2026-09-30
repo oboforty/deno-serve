@@ -6,7 +6,7 @@ import { copy } from "https://deno.land/std/fs/mod.ts";
 import { ensureDir } from "https://deno.land/std/fs/ensure_dir.ts";
 
 
-export type ServeOpts = {
+export type BuildOpts = {
   // output path
   distPath?: string;
   outputPath?: string;
@@ -19,6 +19,7 @@ export type ServeOpts = {
   denoConfig?: string;
   buildOptions?: esbuild.BuildOptions
 }
+
 
 const RELOAD_SCRIPT = `<script>
   const reload = new EventSource("/__reload");
@@ -40,8 +41,23 @@ const DEFAULT_HTML = `
   </body>
 </html>
 `;
+const DEFAULT_HTML_PROD = `
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Page</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app. Alternatively see our client libraries or API documentation.</noscript>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
+`;
 
-export async function serve(opts: ServeOpts = {}) {
+
+export async function serve(opts: BuildOpts = {}) {
   // apply defaults
   opts.distPath = opts.distPath ?? "dist";
   opts.outputPath = opts.outputPath ?? "main.js";
@@ -169,4 +185,60 @@ export async function serve(opts: ServeOpts = {}) {
   });
 
   console.log(`serving: ${opts.buildOptions.entryPoints}`);
+}
+
+
+export async function build(opts: BuildOpts = {}) {
+  // apply defaults
+  opts.distPath = opts.distPath ?? "dist";
+  opts.outputPath = opts.outputPath ?? "main.js";
+  opts.denoConfig = opts.denoConfig ?? "./deno.json";
+  opts.buildOptions = opts.buildOptions ?? {
+    entryPoints: ["src/main.ts"],
+  };
+
+  // Create output directory
+  await ensureDir(opts.distPath);
+  // Copy static files
+  if (opts.publicPath) {
+    await copy(opts.publicPath, opts.distPath, { overwrite: true });
+  }
+  if (opts.htmlPath) {
+    await copy(opts.htmlPath, `${opts.distPath}/index.html`, { overwrite: true });
+  } else {
+    // Minimal production HTML
+    await Deno.writeTextFile(
+      `${opts.distPath}/index.html`,
+      DEFAULT_HTML_PROD.replace(RELOAD_SCRIPT, ""),
+    );
+  }
+
+  // Production build
+  const result = await esbuild.build({
+    // Production defaults
+    outfile: `${opts.distPath}/${opts.outputPath}`,
+    bundle: true,
+    platform: "browser",
+    format: "esm",
+    sourcemap: false,
+    minify: true,
+    treeShaking: true,
+
+    plugins: [
+      denoPlugin({
+        configPath: opts.denoConfig,
+      }),
+    ],
+
+    // User overrides
+    ...opts.buildOptions,
+  });
+
+  if (result.errors.length > 0) {
+    throw new Error("Production build failed");
+  }
+
+  console.log(`Built: ${opts.distPath}/${opts.outputPath}`);
+
+  return result;
 }
