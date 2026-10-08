@@ -22,8 +22,10 @@ export type BuildOpts = {
 
 
 const RELOAD_SCRIPT = `<script>
-  const reload = new EventSource("/__reload");
-  reload.addEventListener("reload", () => { location.reload(); });
+  try{
+    const reload = new EventSource("/__reload");
+    reload.addEventListener("reload", () => { location.reload(); });
+  } catch(e) { console.error("__reload error: ", e); }
 </script>`;
 
 const DEFAULT_HTML = `
